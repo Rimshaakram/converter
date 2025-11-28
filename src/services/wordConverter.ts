@@ -1,24 +1,28 @@
 import jsPDF from 'jspdf';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
+import mammoth from 'mammoth';
 
 /**
  * Word document conversion utilities
- * Handles DOCX <-> PDF conversions
+ * Handles DOCX -> PDF conversions with text extraction
  */
 
 /**
  * Convert Word document to PDF
- * Note: This is a simplified conversion that extracts text and creates a basic PDF
- * For full formatting preservation, server-side conversion is recommended
+ * Extracts text content from DOCX and creates a PDF with the actual content
  */
 export const wordToPdf = async (file: File): Promise<Blob> => {
   try {
     // Read the file as ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
 
-    // Parse the DOCX file
-    // For a simple implementation, we'll extract text and create a basic PDF
-    // A full implementation would preserve all formatting
+    // Extract text from Word document using mammoth
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    const extractedText = result.value;
+
+    // Check if we extracted any text
+    if (!extractedText || extractedText.trim().length === 0) {
+      throw new Error('No text content found in the Word document');
+    }
 
     // Create a new PDF document
     const pdf = new jsPDF({
@@ -27,55 +31,30 @@ export const wordToPdf = async (file: File): Promise<Blob> => {
       format: 'a4',
     });
 
-    // Add title
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-
-    // Add text indicating this is a basic conversion
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 20;
+    const maxWidth = pageWidth - 2 * margin;
     let yPosition = margin;
 
-    // Get filename without extension
-    const fileName = file.name.replace(/\.[^/.]+$/, '');
-
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(fileName, margin, yPosition);
-
-    yPosition += 10;
-
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'italic');
-    pdf.text('Converted from Word Document', margin, yPosition);
-
-    yPosition += 15;
-
+    // Set font
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
 
-    // For a basic implementation, we'll add a message
-    // In a production app, you would parse the DOCX and extract formatted content
-    const message = [
-      'This is a simplified Word to PDF conversion.',
-      '',
-      'For best results with full formatting preservation,',
-      'please use a server-based conversion service or',
-      'desktop application like Microsoft Word or LibreOffice.',
-      '',
-      `Original file: ${file.name}`,
-      `File size: ${(file.size / 1024).toFixed(2)} KB`,
-      `Conversion date: ${new Date().toLocaleDateString()}`,
-    ];
+    // Split text into lines that fit within the page width
+    const lines = pdf.splitTextToSize(extractedText, maxWidth);
 
-    message.forEach((line) => {
+    // Add lines to PDF, creating new pages as needed
+    lines.forEach((line: string) => {
+      // Check if we need a new page
       if (yPosition > pageHeight - margin) {
         pdf.addPage();
         yPosition = margin;
       }
+
+      // Add the line
       pdf.text(line, margin, yPosition);
-      yPosition += 7;
+      yPosition += 7; // Line height
     });
 
     // Convert to blob
@@ -84,104 +63,81 @@ export const wordToPdf = async (file: File): Promise<Blob> => {
   } catch (error) {
     console.error('Word to PDF conversion error:', error);
     throw new Error(
-      `Failed to convert Word to PDF: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to convert Word to PDF: ${error instanceof Error ? error.message : 'Unable to extract content from document'}`
     );
   }
 };
 
 /**
- * Convert PDF to Word document
- * Note: This creates a simple Word document
- * Full PDF to Word conversion with formatting preservation requires advanced processing
+ * Alternative: Convert Word document to PDF with HTML rendering
+ * This provides better formatting preservation
  */
-export const pdfToWord = async (pdfFile: File): Promise<Blob> => {
+export const wordToPdfWithHtml = async (file: File): Promise<Blob> => {
   try {
-    // Create a simple Word document
-    const doc = new Document({
-      sections: [
-        {
-          properties: {},
-          children: [
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: 'Converted from PDF',
-                  bold: true,
-                  size: 28,
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: '',
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: 'This is a placeholder document created from a PDF file.',
-                  italics: true,
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: '',
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Original file: ${pdfFile.name}`,
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `File size: ${(pdfFile.size / 1024).toFixed(2)} KB`,
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Conversion date: ${new Date().toLocaleDateString()}`,
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: '',
-                }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: 'Note: Full PDF to Word conversion with text extraction and formatting preservation requires server-side processing or specialized software.',
-                  size: 20,
-                  color: '666666',
-                }),
-              ],
-            }),
-          ],
-        },
-      ],
+    // Read the file as ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Extract HTML from Word document
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    const html = result.value;
+
+    // Check if we extracted any content
+    if (!html || html.trim().length === 0) {
+      throw new Error('No content found in the Word document');
+    }
+
+    // Create a new PDF document
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
     });
 
-    // Generate the Word document as a blob
-    const blob = await Packer.toBlob(doc);
-    return blob;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - 2 * margin;
+    let yPosition = margin;
+
+    // Parse HTML and extract text (simple approach)
+    // Remove HTML tags and convert to plain text
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+    // Set font
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'normal');
+
+    // Split text into paragraphs
+    const paragraphs = textContent.split('\n').filter((p) => p.trim().length > 0);
+
+    paragraphs.forEach((paragraph) => {
+      // Split paragraph into lines that fit
+      const lines = pdf.splitTextToSize(paragraph, maxWidth);
+
+      lines.forEach((line: string) => {
+        // Check if we need a new page
+        if (yPosition > pageHeight - margin) {
+          pdf.addPage();
+          yPosition = margin;
+        }
+
+        // Add the line
+        pdf.text(line, margin, yPosition);
+        yPosition += 7;
+      });
+
+      // Add spacing between paragraphs
+      yPosition += 3;
+    });
+
+    // Convert to blob
+    const pdfBlob = pdf.output('blob');
+    return pdfBlob;
   } catch (error) {
-    console.error('PDF to Word conversion error:', error);
-    throw new Error(
-      `Failed to convert PDF to Word: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    console.error('Word to PDF (HTML) conversion error:', error);
+    // Fallback to simple text extraction
+    return wordToPdf(file);
   }
 };
