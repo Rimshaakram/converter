@@ -8,8 +8,8 @@ export const SUPPORTED_CONVERSIONS: SupportedConversions = {
   jpeg: ['png', 'pdf'],
   png: ['jpg', 'pdf'],
   pdf: ['jpg', 'png'],
-  // Note: Document conversions (PDF <-> Word) require server-side processing
-  // and are not included in this client-side version
+  docx: ['pdf'],
+  doc: ['pdf'],
 };
 
 /**
@@ -24,6 +24,8 @@ export const ACCEPTED_FILE_TYPES = {
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
   'application/pdf': ['.pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/msword': ['.doc'],
 };
 
 /**

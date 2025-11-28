@@ -66,7 +66,7 @@ export const CONVERSION_TYPES: ConversionType[] = [
     inputFormat: 'pdf',
     outputFormat: 'jpg',
     color: '#ef4444',
-    available: false,
+    available: true,
   },
   {
     id: 'word-to-pdf',
@@ -76,6 +76,6 @@ export const CONVERSION_TYPES: ConversionType[] = [
     inputFormat: 'docx',
     outputFormat: 'pdf',
     color: '#06b6d4',
-    available: false,
+    available: true,
   },
 ];

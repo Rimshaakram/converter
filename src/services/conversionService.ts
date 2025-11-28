@@ -1,6 +1,7 @@
 import { FileFormat, ConversionResult } from '../types';
 import { jpgToPng, pngToJpg } from './imageConverter';
-import { jpgToPdf, pngToPdf, pdfToImages } from './pdfConverter';
+import { jpgToPdf, pngToPdf, pdfToJpg, pdfToPng } from './pdfConverter';
+import { wordToPdf } from './wordConverter';
 import { changeFileExtension } from '../utils/fileHelpers';
 
 /**
@@ -33,9 +34,17 @@ export const convertFile = async (
       fileName = changeFileExtension(file.name, 'pdf');
     }
     // PDF to image conversions
-    else if (inputFormat === 'pdf' && (outputFormat === 'jpg' || outputFormat === 'png')) {
-      resultBlob = await pdfToImages(file);
-      fileName = changeFileExtension(file.name, outputFormat);
+    else if (inputFormat === 'pdf' && outputFormat === 'jpg') {
+      resultBlob = await pdfToJpg(file);
+      fileName = changeFileExtension(file.name, 'jpg');
+    } else if (inputFormat === 'pdf' && outputFormat === 'png') {
+      resultBlob = await pdfToPng(file);
+      fileName = changeFileExtension(file.name, 'png');
+    }
+    // Word to PDF conversion
+    else if (inputFormat === 'docx' && outputFormat === 'pdf') {
+      resultBlob = await wordToPdf(file);
+      fileName = changeFileExtension(file.name, 'pdf');
     } else {
       throw new Error(`Conversion from ${inputFormat} to ${outputFormat} is not implemented`);
     }

@@ -1,8 +1,12 @@
 import jsPDF from 'jspdf';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set up the worker for pdf.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 /**
  * PDF conversion utilities
- * Handles Image <-> PDF conversions using jsPDF
+ * Handles Image <-> PDF conversions using jsPDF and pdf.js
  */
 
 /**
@@ -59,16 +63,97 @@ export const imageToPdf = async (file: File): Promise<Blob> => {
 };
 
 /**
- * Convert PDF to images
- * Note: This is a placeholder. Full PDF to image conversion requires a library like pdf.js
- * For a production app, you would need to implement this with proper PDF rendering
+ * Convert PDF to images (JPG or PNG)
+ * Extracts each page as a separate image
  */
-export const pdfToImages = async (file: File): Promise<Blob[]> => {
-  // This would require pdf.js or similar library for proper implementation
-  // For now, return an error
-  throw new Error(
-    'PDF to image conversion requires server-side processing. This feature will be available in a future update.'
-  );
+export const pdfToImages = async (file: File, format: 'jpg' | 'png' = 'jpg'): Promise<Blob[]> => {
+  try {
+    // Read file as ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+
+    // Load PDF document
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const numPages = pdf.numPages;
+    const images: Blob[] = [];
+
+    // Convert each page to image
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+
+      // Set scale for better quality (2x resolution)
+      const scale = 2.0;
+      const viewport = page.getViewport({ scale });
+
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        throw new Error('Failed to get canvas context');
+      }
+
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      // Render PDF page to canvas
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to convert canvas to blob'));
+            }
+          },
+          format === 'png' ? 'image/png' : 'image/jpeg',
+          0.95
+        );
+      });
+
+      images.push(blob);
+    }
+
+    return images;
+  } catch (error) {
+    console.error('PDF to images conversion error:', error);
+    throw new Error(
+      `Failed to convert PDF to images: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+};
+
+/**
+ * Convert PDF to JPG (returns first page)
+ */
+export const pdfToJpg = async (file: File): Promise<Blob> => {
+  const images = await pdfToImages(file, 'jpg');
+
+  if (images.length === 0) {
+    throw new Error('No pages found in PDF');
+  }
+
+  // Return the first page
+  return images[0];
+};
+
+/**
+ * Convert PDF to PNG (returns first page)
+ */
+export const pdfToPng = async (file: File): Promise<Blob> => {
+  const images = await pdfToImages(file, 'png');
+
+  if (images.length === 0) {
+    throw new Error('No pages found in PDF');
+  }
+
+  // Return the first page
+  return images[0];
 };
 
 /**
