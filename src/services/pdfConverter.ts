@@ -10,7 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
  */
 
 /**
- * Convert image to PDF
+ * Convert image to PDF with proper resizing
  */
 export const imageToPdf = async (file: File): Promise<Blob> => {
   return new Promise((resolve, reject) => {
@@ -20,24 +20,83 @@ export const imageToPdf = async (file: File): Promise<Blob> => {
     reader.onload = (e) => {
       img.onload = () => {
         try {
-          // Calculate PDF dimensions
+          // Get original image dimensions
           const imgWidth = img.width;
           const imgHeight = img.height;
           const ratio = imgWidth / imgHeight;
 
           // A4 dimensions in mm
-          const pdfWidth = 210;
-          const pdfHeight = pdfWidth / ratio;
+          const a4Width = 210;
+          const a4Height = 297;
 
-          // Create PDF
+          // Calculate optimal PDF dimensions and orientation
+          let pdfWidth: number;
+          let pdfHeight: number;
+          let orientation: 'portrait' | 'landscape';
+
+          if (ratio > 1) {
+            // Landscape image
+            orientation = 'landscape';
+            pdfWidth = a4Height;
+            pdfHeight = a4Width;
+          } else {
+            // Portrait image
+            orientation = 'portrait';
+            pdfWidth = a4Width;
+            pdfHeight = a4Height;
+          }
+
+          // Create PDF with appropriate orientation
           const pdf = new jsPDF({
-            orientation: ratio > 1 ? 'landscape' : 'portrait',
+            orientation,
             unit: 'mm',
             format: 'a4',
           });
 
-          // Add image to PDF
-          pdf.addImage(img.src, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+          // Calculate dimensions to fit image within PDF page with margins
+          const margin = 10; // 10mm margin
+          const maxWidth = pdfWidth - 2 * margin;
+          const maxHeight = pdfHeight - 2 * margin;
+
+          let finalWidth: number;
+          let finalHeight: number;
+
+          // Scale image to fit within the page while maintaining aspect ratio
+          if (ratio > maxWidth / maxHeight) {
+            // Width is the limiting factor
+            finalWidth = maxWidth;
+            finalHeight = maxWidth / ratio;
+          } else {
+            // Height is the limiting factor
+            finalHeight = maxHeight;
+            finalWidth = maxHeight * ratio;
+          }
+
+          // Center the image on the page
+          const xOffset = (pdfWidth - finalWidth) / 2;
+          const yOffset = (pdfHeight - finalHeight) / 2;
+
+          // Resize image using canvas for better quality
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            throw new Error('Failed to get canvas context');
+          }
+
+          // Set canvas size to optimized dimensions (DPI optimization)
+          const targetWidth = Math.min(imgWidth, 1920); // Max width for quality
+          const targetHeight = (targetWidth / imgWidth) * imgHeight;
+
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+
+          // Draw resized image
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+          // Add resized image to PDF
+          const resizedImageData = canvas.toDataURL('image/jpeg', 0.95);
+          pdf.addImage(resizedImageData, 'JPEG', xOffset, yOffset, finalWidth, finalHeight);
 
           // Convert to blob
           const pdfBlob = pdf.output('blob');
@@ -63,10 +122,14 @@ export const imageToPdf = async (file: File): Promise<Blob> => {
 };
 
 /**
- * Convert PDF to images (JPG or PNG)
- * Extracts each page as a separate image
+ * Convert PDF to images (JPG or PNG) with proper resizing
+ * Extracts each page as a separate image with optimal dimensions
  */
-export const pdfToImages = async (file: File, format: 'jpg' | 'png' = 'jpg'): Promise<Blob[]> => {
+export const pdfToImages = async (
+  file: File,
+  format: 'jpg' | 'png' = 'jpg',
+  targetWidth: number = 1920
+): Promise<Blob[]> => {
   try {
     // Read file as ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
@@ -80,30 +143,64 @@ export const pdfToImages = async (file: File, format: 'jpg' | 'png' = 'jpg'): Pr
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
 
-      // Set scale for better quality (2x resolution)
-      const scale = 2.0;
+      // Get the page viewport at scale 1 to determine aspect ratio
+      const viewport1 = page.getViewport({ scale: 1 });
+      const pageWidth = viewport1.width;
+      const pageHeight = viewport1.height;
+      const aspectRatio = pageWidth / pageHeight;
+
+      // Calculate scale to achieve target width while maintaining quality
+      // Limit to reasonable dimensions (max 1920px width for standard quality)
+      const desiredWidth = Math.min(targetWidth, pageWidth * 3); // Max 3x original
+      const scale = desiredWidth / pageWidth;
+
+      // Get viewport with calculated scale
       const viewport = page.getViewport({ scale });
 
-      // Create canvas
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
+      // Create high-quality canvas for rendering
+      const renderCanvas = document.createElement('canvas');
+      const renderContext = renderCanvas.getContext('2d');
 
-      if (!context) {
+      if (!renderContext) {
         throw new Error('Failed to get canvas context');
       }
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      renderCanvas.width = viewport.width;
+      renderCanvas.height = viewport.height;
 
       // Render PDF page to canvas
       await page.render({
-        canvasContext: context,
+        canvasContext: renderContext,
         viewport: viewport,
       }).promise;
 
+      // Create output canvas with desired dimensions
+      const outputCanvas = document.createElement('canvas');
+      const outputContext = outputCanvas.getContext('2d');
+
+      if (!outputContext) {
+        throw new Error('Failed to get output canvas context');
+      }
+
+      // Calculate output dimensions (resize if needed)
+      let outputWidth = renderCanvas.width;
+      let outputHeight = renderCanvas.height;
+
+      // If image is too large, resize it down
+      if (outputWidth > targetWidth) {
+        outputWidth = targetWidth;
+        outputHeight = targetWidth / aspectRatio;
+      }
+
+      outputCanvas.width = outputWidth;
+      outputCanvas.height = outputHeight;
+
+      // Draw the rendered PDF page onto the output canvas (with resize if needed)
+      outputContext.drawImage(renderCanvas, 0, 0, outputWidth, outputHeight);
+
       // Convert canvas to blob
       const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
+        outputCanvas.toBlob(
           (blob) => {
             if (blob) {
               resolve(blob);
